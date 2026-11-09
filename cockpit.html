@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Tobii Eye Spark Pro — Cockpit Gaze Control</title>
+<style>
+:root{
+  --bg:#030508;
+  --panel:#07090f;
+  --panel2:#0a0e18;
+  --panel3:#0d1220;
+  --rim:#1a2540;
+  --rim2:#243050;
+  --border:rgba(60,140,255,.18);
+  --border2:rgba(60,140,255,.35);
+  --accent:#1e90ff;
+  --cyan:#00d4ff;
+  --green:#00e676;
+  --amber:#ffb300;
+  --red:#ff3d3d;
+  --purple:#7c3aed;
+  --text:#c8deff;
+  --text2:#7090b8;
+  --text3:#3a5070;
+  --glow:rgba(0,212,255,.25);
+  --dwell-ms:1600;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Courier New',monospace;}
+
+/* ── CURSOR ── */
+body{cursor:none;}
+#gazeReticle{
+  position:fixed;z-index:9999;pointer-events:none;
+  transform:translate(-50%,-50%);transition:opacity .2s;
+}
+.r-outer{width:56px;height:56px;border:1.5px solid rgba(0,212,255,.5);border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);animation:r-pulse 2s ease-in-out infinite;}
+.r-inner{width:20px;height:20px;border:1.5px solid rgba(0,212,255,.9);border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);}
+.r-dot{width:4px;height:4px;background:var(--cyan);border-radius:50%;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px var(--cyan);}
+.r-line{position:absolute;background:rgba(0,212,255,.4);}
+.r-h{width:10px;height:1px;top:50%;left:50%;transform:translate(-50%,-50%) translateX(12px);}
+.r-h2{width:10px;height:1px;top:50%;left:50%;transform:translate(-50%,-50%) translateX(-22px);}
+.r-v{width:1px;height:10px;top:50%;left:50%;transform:translate(-50%,-50%) translateY(12px);}
+.r-v2{width:1px;height:10px;top:50%;left:50%;transform:translate(-50%,-50%) translateY(-22px);}
+@keyframes r-pulse{0%,100%{opacity:.7;transform:translate(-50%,-50%) scale(1);}50%{opacity:.4;transform:translate(-50%,-50%) scale(1.1);}}
+
+/* Dwell ring */
+#dwellRing{
+  position:fixed;z-index:9998;pointer-events:none;
+  transform:translate(-50%,-50%);
+}
+#dwellRing canvas{display:block;}
+
+/* ── LAYOUT ── */
+.cockpit{
+  width:100vw;height:100vh;
+  display:grid;
+  grid-template-rows:36px 1fr 140px;
+  grid-template-columns:1fr;
+}
+
+/* FMA / status bar */
+.fma-bar{
+  grid-row:1;background:var(--panel3);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;font-size:11px;letter-spacing:1.5px;
+}
+.fma-group{display:flex;gap:16px;align-items:center;}
+.fma-box{
+  padding:3px 12px;border:1px solid var(--border);border-radius:3px;
+  background:rgba(30,144,255,.06);font-size:10px;font-weight:700;
+  letter-spacing:2px;text-transform:uppercase;
+}
+.fma-box.active{border-color:var(--cyan);color:var(--cyan);background:rgba(0,212,255,.08);}
+.fma-box.amber{border-color:var(--amber);color:var(--amber);background:rgba(255,179,0,.08);}
+.tobii-badge{
+  display:flex;align-items:center;gap:6px;font-size:10px;
+  color:var(--cyan);letter-spacing:1px;
+}
+.tobii-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);animation:r-pulse 1.5s ease-in-out infinite;}
+
+/* MAIN PANEL */
+.main-panel{
+  grid-row:2;
+  display:grid;
+  grid-template-columns:220px 1fr 1fr 1fr 220px;
+  gap:0;
+  overflow:hidden;
+}
+
+/* ── SIDE PANELS ── */
+.side-panel{
+  background:var(--panel);
+  border-right:1px solid var(--rim);
+  display:flex;flex-direction:column;gap:8px;
+  padding:10px 8px;overflow:hidden;
+}
+.side-panel.right{border-right:none;border-left:1px solid var(--rim);}
+
+/* ── CENTER INSTRUMENTS ── */
+.instrument-col{
+  background:var(--panel2);
+  border-right:1px solid var(--rim);
+  display:flex;flex-direction:column;align-items:center;
+  padding:8px 6px;gap:6px;overflow:hidden;
+}
+.instrument-col.last{border-right:none;}
+
+/* ── INSTRUMENT LABELS ── */
+.inst-label{
+  font-size:9px;letter-spacing:2px;color:var(--text3);
+  text-transform:uppercase;text-align:center;width:100%;
+  margin-bottom:2px;
+}
+
+/* ── CANVAS INSTRUMENTS ── */
+canvas.instrument{border-radius:4px;display:block;}
+
+/* ── AUTOPILOT PANEL ── */
+.ap-panel{
+  background:var(--panel3);
+  border:1px solid var(--rim);border-radius:6px;
+  padding:8px 6px;width:100%;
+}
+.ap-title{
+  font-size:9px;letter-spacing:2px;color:var(--text3);
+  text-transform:uppercase;margin-bottom:6px;text-align:center;
+}
+.ap-row{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;}
+
+/* ── GAZE BUTTON BASE ── */
+.gb{
+  position:relative;overflow:hidden;
+  border-radius:4px;cursor:none;
+  transition:border-color .15s, box-shadow .15s, background .15s;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.gb:focus{outline:none;}
+
+/* gaze states */
+.gb.gazed{
+  border-color:var(--cyan) !important;
+  box-shadow:0 0 0 1px var(--cyan), 0 0 16px rgba(0,212,255,.3) !important;
+  background:rgba(0,212,255,.08) !important;
+}
+.gb.selected{
+  border-color:var(--green) !important;
+  box-shadow:0 0 0 2px var(--green), 0 0 24px rgba(0,230,118,.4) !important;
+  background:rgba(0,230,118,.12) !important;
+  color:var(--green) !important;
+}
+.gb.selected .gb-val{color:var(--green)!important;}
+
+/* AP buttons */
+.ap-btn{
+  padding:5px 8px;border:1px solid var(--rim);
+  background:var(--panel);color:var(--text2);
+  font:700 9px/1 'Courier New',monospace;
+  letter-spacing:1.5px;text-align:center;
+  min-width:44px;
+}
+
+/* Number display */
+.num-disp{
+  background:rgba(0,0,0,.5);border:1px solid var(--rim);border-radius:3px;
+  padding:4px 8px;text-align:center;width:100%;margin-bottom:4px;
+}
+.num-disp .nd-label{font-size:9px;color:var(--text3);letter-spacing:1.5px;}
+.num-disp .nd-val{
+  font-size:20px;font-weight:700;color:var(--cyan);
+  letter-spacing:2px;font-family:'Courier New',monospace;
+  line-height:1.2;
+}
+.num-disp .nd-unit{font-size:9px;color:var(--text2);letter-spacing:1px;}
+
+/* ── COMMS PANEL ── */
+.comms-panel{
+  background:var(--panel3);border:1px solid var(--rim);
+  border-radius:6px;padding:8px;width:100%;
+}
+.comm-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:4px 0;border-bottom:1px solid rgba(60,140,255,.07);
+  font-size:10px;
+}
+.comm-row:last-child{border-bottom:none;}
+.comm-label{color:var(--text3);letter-spacing:1px;font-size:9px;}
+.comm-freq{
+  font-size:13px;font-weight:700;color:var(--cyan);letter-spacing:2px;
+  font-family:'Courier New',monospace;
+}
+.comm-btn{
+  padding:3px 8px;border:1px solid var(--rim);border-radius:3px;
+  background:var(--panel);color:var(--text2);font-size:9px;
+  letter-spacing:1px;
+}
+
+/* ── WARNINGS ── */
+.warn-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px;width:100%;}
+.warn-item{
+  padding:4px 6px;border-radius:3px;border:1px solid transparent;
+  font-size:9px;font-weight:700;letter-spacing:1.5px;text-align:center;
+  text-transform:uppercase;
+}
+.warn-off{background:rgba(0,0,0,.3);border-color:var(--rim);color:var(--text3);}
+.warn-amber{background:rgba(255,179,0,.12);border-color:var(--amber);color:var(--amber);animation:blink-amber 1s ease-in-out infinite;}
+.warn-green{background:rgba(0,230,118,.08);border-color:var(--green);color:var(--green);}
+@keyframes blink-amber{0%,100%{opacity:1;}50%{opacity:.5;}}
+
+/* ── ENGINE GAUGES ── */
+.eng-gauge{
+  width:100%;background:rgba(0,0,0,.4);border:1px solid var(--rim);
+  border-radius:4px;padding:6px;
+}
+.eng-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:9px;}
+.eng-label{color:var(--text3);letter-spacing:1.5px;}
+.eng-val{color:var(--cyan);font-weight:700;font-size:12px;font-family:'Courier New',monospace;}
+.eng-bar{height:6px;background:var(--rim);border-radius:3px;overflow:hidden;margin-bottom:3px;}
+.eng-fill{height:100%;border-radius:3px;transition:width .5s ease;}
+
+/* ── MODE SELECTOR ── */
+.mode-panel{
+  background:var(--panel3);border:1px solid var(--rim);
+  border-radius:6px;padding:8px;width:100%;
+}
+.mode-btn{
+  padding:7px 6px;border:1px solid var(--rim);
+  background:var(--panel);color:var(--text2);
+  font:700 9px/1 'Courier New',monospace;
+  letter-spacing:1.5px;text-align:center;
+  width:100%;margin-bottom:3px;border-radius:3px;
+}
+.mode-btn:last-child{margin-bottom:0;}
+
+/* ── GAZE LOG ── */
+.gaze-log{
+  background:var(--panel3);border:1px solid var(--rim);
+  border-radius:6px;padding:8px;flex:1;overflow:hidden;
+}
+.log-entry{
+  font-size:9px;color:var(--text2);letter-spacing:.5px;
+  padding:2px 0;border-bottom:1px solid rgba(60,140,255,.05);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.log-entry.new{color:var(--cyan);}
+
+/* ── BOTTOM MCP (Master Control Panel) ── */
+.mcp-bar{
+  grid-row:3;
+  background:var(--panel);border-top:2px solid var(--rim2);
+  display:flex;gap:8px;align-items:center;padding:10px 16px;
+  overflow-x:auto;
+}
+.mcp-group{
+  display:flex;flex-direction:column;gap:4px;align-items:center;
+  min-width:70px;padding:6px 10px;
+  background:var(--panel3);border:1px solid var(--rim);border-radius:6px;
+}
+.mcp-group-label{font-size:8px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:2px;}
+.mcp-row{display:flex;gap:4px;}
+.mcp-btn{
+  padding:6px 10px;border:1px solid var(--rim);
+  background:var(--panel2);color:var(--text2);
+  font:700 9px/1 'Courier New',monospace;
+  letter-spacing:1.5px;border-radius:3px;
+  min-width:48px;text-align:center;
+}
+.mcp-dial{
+  width:48px;height:48px;border:2px solid var(--rim);border-radius:50%;
+  background:radial-gradient(circle,var(--panel2) 60%,var(--panel3));
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;color:var(--text2);letter-spacing:1px;
+  position:relative;
+}
+.mcp-dial::after{
+  content:'';position:absolute;top:4px;left:50%;transform:translateX(-50%);
+  width:2px;height:8px;background:var(--cyan);border-radius:1px;
+}
+
+/* ── SELECTION FLASH ── */
+.sel-flash{
+  position:fixed;z-index:9996;pointer-events:none;
+  border-radius:6px;transform:translate(-50%,-50%);
+  animation:sel-anim .4s ease-out forwards;
+}
+@keyframes sel-anim{
+  0%{box-shadow:0 0 0 0 rgba(0,230,118,.8);opacity:1;}
+  100%{box-shadow:0 0 0 30px rgba(0,230,118,0);opacity:0;}
+}
+
+/* ── PFD overlays ── */
+.pfd-overlay{
+  position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;
+  z-index:2;
+}
+.pfd-wrap{position:relative;width:100%;}
+
+/* ── BLINK HINT ── */
+.blink-hint{
+  position:fixed;bottom:160px;left:50%;transform:translateX(-50%);
+  background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.3);
+  padding:6px 16px;border-radius:20px;font-size:11px;color:var(--cyan);
+  letter-spacing:1px;pointer-events:none;z-index:200;
+  transition:opacity .3s;opacity:0;
+}
+</style>
+</head>
+<body>
+
+<!-- GAZE RETICLE -->
+<div id="gazeReticle">
+  <div class="r-outer"></div>
+  <div class="r-inner"></div>
+  <div class="r-dot"></div>
+  <div class="r-line r-h"></div>
+  <div class="r-line r-h2"></div>
+  <div class="r-line r-v"></div>
+  <div class="r-line r-v2"></div>
+</div>
+
+<!-- DWELL RING -->
+<div id="dwellRing"><canvas id="dwellCanvas" width="80" height="80"></canvas></div>
+
+<!-- BLINK HINT -->
+<div class="blink-hint" id="blinkHint">👁 DOUBLE-BLINK / DOUBLE-CLICK TO CONFIRM</div>
+
+<!-- ════════════════ COCKPIT ════════════════ -->
+<div class="cockpit">
+
+  <!-- FMA BAR -->
+  <div class="fma-bar">
+    <div class="fma-group">
+      <div class="fma-box active" id="fma-speed">SPD 280</div>
+      <div class="fma-box active" id="fma-vnav">VNAV PTH</div>
+      <div class="fma-box active" id="fma-lnav">LNAV</div>
+    </div>
+    <div class="fma-group">
+      <div style="font-size:12px;letter-spacing:3px;color:var(--text2);">◈ COCKPIT EYE CONTROL</div>
+    </div>
+    <div class="fma-group">
+      <div class="fma-box amber" id="fma-ap">A/P ON</div>
+      <div class="tobii-badge">
+        <div class="tobii-dot"></div>
+        TOBII EYE SPARK PRO
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN PANEL -->
+  <div class="main-panel">
+
+    <!-- LEFT SIDE: ENGINE + WARNINGS -->
+    <div class="side-panel">
+      <div class="inst-label">⚙ ENGINE</div>
+      <div class="eng-gauge">
+        <div class="eng-row"><span class="eng-label">N1 ENG 1</span><span class="eng-val" id="n1e1">84.2%</span></div>
+        <div class="eng-bar"><div class="eng-fill" id="n1b1" style="width:84%;background:linear-gradient(90deg,var(--green),var(--cyan));"></div></div>
+        <div class="eng-row"><span class="eng-label">EGT</span><span class="eng-val" style="color:var(--amber);" id="egt1">612°C</span></div>
+        <div class="eng-bar"><div class="eng-fill" id="egtb1" style="width:61%;background:linear-gradient(90deg,var(--amber),#ff6b00);"></div></div>
+        <div class="eng-row"><span class="eng-label">FF</span><span class="eng-val">3840 KG/H</span></div>
+      </div>
+      <div class="eng-gauge" style="margin-top:2px;">
+        <div class="eng-row"><span class="eng-label">N1 ENG 2</span><span class="eng-val" id="n1e2">83.8%</span></div>
+        <div class="eng-bar"><div class="eng-fill" id="n1b2" style="width:84%;background:linear-gradient(90deg,var(--green),var(--cyan));"></div></div>
+        <div class="eng-row"><span class="eng-label">EGT</span><span class="eng-val" style="color:var(--amber);" id="egt2">608°C</span></div>
+        <div class="eng-bar"><div class="eng-fill" id="egtb2" style="width:60%;background:linear-gradient(90deg,var(--amber),#ff6b00);"></div></div>
+        <div class="eng-row"><span class="eng-label">FF</span><span class="eng-val">3820 KG/H</span></div>
+      </div>
+
+      <div class="inst-label" style="margin-top:4px;">⚠ ANNUNCIATORS</div>
+      <div class="warn-grid">
+        <div class="warn-item warn-green">LAND 3</div>
+        <div class="warn-item warn-off">FIRE</div>
+        <div class="warn-item warn-green">HYD A</div>
+        <div class="warn-item warn-green">HYD B</div>
+        <div class="warn-item warn-amber gb ap-btn" id="warn-cab" data-label="CABIN">CAB PRESS</div>
+        <div class="warn-item warn-off">ELEC</div>
+        <div class="warn-item warn-off">FUEL</div>
+        <div class="warn-item warn-off">ICE</div>
+      </div>
+
+      <div class="inst-label" style="margin-top:auto;">📋 GAZE LOG</div>
+      <div class="gaze-log" id="gazeLog">
+        <div class="log-entry" style="color:var(--text3);">Eye tracking active…</div>
+      </div>
+    </div>
+
+    <!-- COL 1: PFD (Primary Flight Display) -->
+    <div class="instrument-col">
+      <div class="inst-label">◈ PRIMARY FLIGHT DISPLAY</div>
+      <div class="pfd-wrap" style="width:100%;flex:1;">
+        <canvas id="pfdCanvas" class="instrument" style="width:100%;"></canvas>
+      </div>
+      <div class="ap-panel" style="margin-top:4px;">
+        <div class="ap-title">⚙ AUTOPILOT</div>
+        <div class="ap-row">
+          <div class="ap-btn gb" id="ap-ap" data-label="A/P ENGAGE">A/P</div>
+          <div class="ap-btn gb" id="ap-athr" data-label="A/THRUST">A/THR</div>
+          <div class="ap-btn gb selected" id="ap-lnav" data-label="LAT NAV">LNAV</div>
+          <div class="ap-btn gb selected" id="ap-vnav" data-label="VERT NAV">VNAV</div>
+        </div>
+        <div class="ap-row" style="margin-top:4px;">
+          <div class="ap-btn gb" id="ap-hdg" data-label="HDG SELECT">HDG</div>
+          <div class="ap-btn gb" id="ap-vs" data-label="VERT SPEED">V/S</div>
+          <div class="ap-btn gb selected" id="ap-alt" data-label="ALT HOLD">ALT</div>
+          <div class="ap-btn gb" id="ap-ils" data-label="ILS APPROACH">ILS</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COL 2: ND (Navigation Display) -->
+    <div class="instrument-col">
+      <div class="inst-label">◈ NAVIGATION DISPLAY</div>
+      <canvas id="ndCanvas" class="instrument" style="width:100%;flex:1;"></canvas>
+
+      <div class="mode-panel" style="margin-top:4px;">
+        <div class="ap-title">🗺 NAV MODE</div>
+        <div class="ap-row">
+          <div class="ap-btn gb" id="nd-arc" data-label="ARC MODE">ARC</div>
+          <div class="ap-btn gb selected" id="nd-map" data-label="MAP MODE">MAP</div>
+          <div class="ap-btn gb" id="nd-vor" data-label="VOR MODE">VOR</div>
+          <div class="ap-btn gb" id="nd-pln" data-label="PLAN MODE">PLN</div>
+        </div>
+        <div class="ap-row" style="margin-top:4px;">
+          <div class="ap-btn gb" id="nd-wx" data-label="WX RADAR">WX</div>
+          <div class="ap-btn gb" id="nd-tcas" data-label="TCAS ON">TCAS</div>
+          <div class="ap-btn gb" id="nd-terr" data-label="TERRAIN">TERR</div>
+          <div class="ap-btn gb selected" id="nd-arpt" data-label="AIRPORTS">ARPT</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COL 3: EICAS / Systems -->
+    <div class="instrument-col last">
+      <div class="inst-label">◈ SYSTEMS / EICAS</div>
+      <canvas id="eicasCanvas" class="instrument" style="width:100%;flex:1;"></canvas>
+
+      <div class="ap-panel" style="margin-top:4px;">
+        <div class="ap-title">🎚 FLIGHT CTL</div>
+        <div class="ap-row">
+          <div class="ap-btn gb" id="fc-spd" data-label="SPEED BRAKE">SPDBRK</div>
+          <div class="ap-btn gb" id="fc-flp" data-label="FLAPS SEL">FLAPS</div>
+          <div class="ap-btn gb" id="fc-gear" data-label="GEAR UP/DN">GEAR</div>
+        </div>
+        <div class="ap-row" style="margin-top:4px;">
+          <div class="ap-btn gb selected" id="fc-apt" data-label="AUTOLAND">APTLD</div>
+          <div class="ap-btn gb" id="fc-to" data-label="TOGA THRUST">TOGA</div>
+          <div class="ap-btn gb" id="fc-disc" data-label="DISC A/P">DISC</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDE: COMMS + TARGETS -->
+    <div class="side-panel right">
+      <div class="inst-label">📡 COMMUNICATIONS</div>
+      <div class="comms-panel">
+        <div class="comm-row">
+          <span class="comm-label">VHF 1</span>
+          <span class="comm-freq gb" id="com-vhf1" data-label="VHF 1 ACTIVE">121.500</span>
+        </div>
+        <div class="comm-row">
+          <span class="comm-label">VHF 2</span>
+          <span class="comm-freq gb" id="com-vhf2" data-label="VHF 2 ACTIVE">119.100</span>
+        </div>
+        <div class="comm-row">
+          <span class="comm-label">HF  </span>
+          <span class="comm-freq gb" id="com-hf" data-label="HF RADIO">3016.0</span>
+        </div>
+        <div class="comm-row">
+          <span class="comm-label">ACARS</span>
+          <span class="comm-btn gb" id="com-acars" data-label="ACARS MSG">MSG▸</span>
+        </div>
+      </div>
+
+      <div class="inst-label" style="margin-top:6px;">🎯 GAZE TARGETS</div>
+      <div style="display:flex;flex-direction:column;gap:4px;width:100%;">
+        <div class="num-disp gb" id="disp-alt" data-label="ALT 35000ft">
+          <div class="nd-label">ALTITUDE</div>
+          <div class="nd-val" id="altVal">35000</div>
+          <div class="nd-unit">FT</div>
+        </div>
+        <div class="num-disp gb" id="disp-spd" data-label="SPEED 280kts">
+          <div class="nd-label">AIRSPEED</div>
+          <div class="nd-val" id="spdVal">280</div>
+          <div class="nd-unit">KTS</div>
+        </div>
+        <div class="num-disp gb" id="disp-hdg" data-label="HDG 095°">
+          <div class="nd-label">HEADING</div>
+          <div class="nd-val" id="hdgVal">095</div>
+          <div class="nd-unit">DEG</div>
+        </div>
+        <div class="num-disp gb" id="disp-vs" data-label="V/S 0ft/min">
+          <div class="nd-label">VERT SPEED</div>
+          <div class="nd-val" id="vsVal">+000</div>
+          <div class="nd-unit">FT/MIN</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MCP BAR -->
+  <div class="mcp-bar">
+    <div class="mcp-group">
+      <div class="mcp-group-label">SPEED</div>
+      <div class="mcp-row">
+        <div class="mcp-dial gb" id="mcp-spd-dial" data-label="SPD DIAL">SPD<br>280</div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <div class="mcp-btn gb" id="mcp-spd-up" data-label="SPD +10">▲</div>
+          <div class="mcp-btn gb" id="mcp-spd-dn" data-label="SPD -10">▼</div>
+        </div>
+      </div>
+    </div>
+    <div class="mcp-group">
+      <div class="mcp-group-label">HEADING</div>
+      <div class="mcp-row">
+        <div class="mcp-dial gb" id="mcp-hdg-dial" data-label="HDG DIAL">HDG<br>095</div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <div class="mcp-btn gb" id="mcp-hdg-l" data-label="HDG LEFT">◀</div>
+          <div class="mcp-btn gb" id="mcp-hdg-r" data-label="HDG RIGHT">▶</div>
+        </div>
+      </div>
+    </div>
+    <div class="mcp-group">
+      <div class="mcp-group-label">ALTITUDE</div>
+      <div class="mcp-row">
+        <div class="mcp-dial gb" id="mcp-alt-dial" data-label="ALT DIAL">ALT<br>35K</div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <div class="mcp-btn gb" id="mcp-alt-up" data-label="ALT +1000">▲</div>
+          <div class="mcp-btn gb" id="mcp-alt-dn" data-label="ALT -1000">▼</div>
+        </div>
+      </div>
+    </div>
+    <div class="mcp-group">
+      <div class="mcp-group-label">VERT SPEED</div>
+      <div class="mcp-row">
+        <div class="mcp-dial gb" id="mcp-vs-dial" data-label="V/S DIAL">V/S<br>0</div>
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <div class="mcp-btn gb" id="mcp-vs-up" data-label="V/S UP">▲</div>
+          <div class="mcp-btn gb" id="mcp-vs-dn" data-label="V/S DN">▼</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;"></div>
+    <div class="mcp-group" style="min-width:120px;">
+      <div class="mcp-group-label">GAZE STATUS</div>
+      <div style="font-size:9px;color:var(--text2);letter-spacing:1px;" id="gazeStatus">Tracking…</div>
+      <div style="font-size:8px;color:var(--text3);letter-spacing:.5px;" id="gazeCoords">X:— Y:—</div>
+    </div>
+    <div class="mcp-group" style="min-width:140px;">
+      <div class="mcp-group-label">LAST ACTION</div>
+      <div style="font-size:10px;color:var(--green);letter-spacing:1px;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="lastAction">—</div>
+    </div>
+    <div class="mcp-group">
+      <div class="mcp-group-label">BLINK</div>
+      <div style="font-size:9px;color:var(--text2);letter-spacing:1px;" id="blinkStatus">—</div>
+      <div style="font-size:8px;color:var(--text3);">Dbl-click = select</div>
+    </div>
+  </div>
+
+</div><!-- /cockpit -->
+
+<script>
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   TOBII EYE SPARK PRO — COCKPIT CONTROLLER
+   Mouse = eye gaze | DblClick = double blink
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+// Flight state
+const flight = {
+  alt:35000, spd:280, hdg:95, vs:0,
+  pitch:-2, roll:0,
+  hdgTrue:95, apOn:true,
+};
+
+// Gaze state
+const gaze = {
+  x:0, y:0,
+  currentEl:null,
+  dwellStart:null,
+  dwellEl:null,
+  dwellProgress:0,
+  DWELL_MS:1400,
+  lastClickTime:0,
+  DBL_THRESHOLD:500,
+};
+
+/* ── RETICLE ── */
+const reticle = document.getElementById('gazeReticle');
+const dwellRing = document.getElementById('dwellRing');
+const dwellCtx = document.getElementById('dwellCanvas').getContext('2d');
+
+function updateGazePosition(x, y) {
+  gaze.x = x; gaze.y = y;
+  reticle.style.left = gaze.x + 'px';
+  reticle.style.top  = gaze.y + 'px';
+  dwellRing.style.left = gaze.x + 'px';
+  dwellRing.style.top  = gaze.y + 'px';
+  document.getElementById('gazeCoords').textContent = `X:${gaze.x} Y:${gaze.y}`;
+  checkGazeTarget();
+}
+
+// Mouse movement fallback for testing
+document.addEventListener('mousemove', e => {
+  if (!wsConnected) {
+    updateGazePosition(e.clientX, e.clientY);
+  }
+});
+
+/* ── WEBSOCKET BRIDGE TO PYTHON TOBII CONTROLLER ── */
+let wsConnected = false;
+function connectWebSocket() {
+  try {
+    const ws = new WebSocket('ws://localhost:8765');
+    ws.onopen = () => {
+      wsConnected = true;
+      document.querySelector('.tobii-badge').innerHTML = '<div class="tobii-dot" style="background:#00e676;"></div> TOBII LIVE STREAM';
+      log('WebSocket: Connected to Python Tobii controller');
+    };
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      updateGazePosition(data.x, data.y);
+
+      if (data.double_blink) {
+        triggerDoubleBlink();
+      }
+    };
+    ws.onclose = () => {
+      wsConnected = false;
+      document.querySelector('.tobii-badge').innerHTML = '<div class="tobii-dot"></div> TOBII SIMULATOR (MOUSE)';
+      setTimeout(connectWebSocket, 2000); // retry connect
+    };
+    ws.onerror = () => {
+      ws.close();
+    };
+  } catch (err) {
+    wsConnected = false;
+    setTimeout(connectWebSocket, 2000);
+  }
+}
+connectWebSocket();
+
+/* ── GAZE TARGET DETECTION ── */
+function checkGazeTarget() {
+  const all = document.querySelectorAll('.gb');
+  let hit = null;
+  const top = document.elementFromPoint(gaze.x, gaze.y);
+  if (top) {
+    let el = top;
+    while (el) {
+      if (el.classList && el.classList.contains('gb')) { hit = el; break; }
+      el = el.parentElement;
+    }
+  }
+
+  if (hit !== gaze.dwellEl) {
+    if (gaze.dwellEl) gaze.dwellEl.classList.remove('gazed');
+    gaze.dwellEl = hit;
+    gaze.dwellStart = hit ? performance.now() : null;
+    gaze.dwellProgress = 0;
+    if (!hit) document.getElementById('blinkHint').style.opacity = '0';
+  }
+
+  if (hit) {
+    hit.classList.add('gazed');
+    document.getElementById('gazeStatus').textContent = hit.dataset.label || 'CONTROL';
+  } else {
+    document.getElementById('gazeStatus').textContent = 'Tracking…';
+  }
+}
+
+/* ── DWELL LOOP ── */
+function dwellLoop() {
+  dwellCtx.clearRect(0,0,80,80);
+  if (gaze.dwellEl && gaze.dwellStart) {
+    const elapsed = performance.now() - gaze.dwellStart;
+    gaze.dwellProgress = Math.min(elapsed / gaze.DWELL_MS, 1);
+
+    const cx=40,cy=40,r=32;
+    dwellCtx.beginPath();
+    dwellCtx.arc(cx,cy,r,0,Math.PI*2);
+    dwellCtx.strokeStyle='rgba(60,140,255,.15)';
+    dwellCtx.lineWidth=3;
+    dwellCtx.stroke();
+
+    const angle = -Math.PI/2 + gaze.dwellProgress * Math.PI*2;
+    const grad = dwellCtx.createLinearGradient(cx-r,cy,cx+r,cy);
+    grad.addColorStop(0,'rgba(0,212,255,.8)');
+    grad.addColorStop(1,'rgba(0,230,118,.9)');
+    dwellCtx.beginPath();
+    dwellCtx.arc(cx,cy,r,-Math.PI/2,angle);
+    dwellCtx.strokeStyle=grad;
+    dwellCtx.lineWidth=3;
+    dwellCtx.lineCap='round';
+    dwellCtx.stroke();
+
+    if (gaze.dwellProgress > 0.5) {
+      document.getElementById('blinkHint').style.opacity='1';
+    }
+
+    if (gaze.dwellProgress >= 1) {
+      activateControl(gaze.dwellEl);
+      gaze.dwellEl.classList.remove('gazed');
+      gaze.dwellStart = null;
+      gaze.dwellProgress = 0;
+      gaze.dwellEl = null;
+      document.getElementById('blinkHint').style.opacity='0';
+    }
+  }
+  requestAnimationFrame(dwellLoop);
+}
+dwellLoop();
+
+function triggerDoubleBlink() {
+  document.getElementById('blinkStatus').textContent = '👁👁 BLINK!';
+  setTimeout(()=>document.getElementById('blinkStatus').textContent='—',600);
+
+  const el = document.querySelector('.gb.gazed');
+  if (el) {
+    activateControl(el);
+    spawnSelFlash(gaze.x, gaze.y, el);
+  }
+}
+
+/* ── DOUBLE CLICK = DOUBLE BLINK SIMULATOR ── */
+document.addEventListener('dblclick', e => {
+  triggerDoubleBlink();
+  e.preventDefault();
+});
+
+/* ── ACTIVATE CONTROL ── */
+function activateControl(el) {
+  const id = el.id;
+  const label = el.dataset.label || id;
+  log(`✓ ${label}`);
+  document.getElementById('lastAction').textContent = label;
+
+  // handle specific controls
+  if (id.startsWith('ap-')) handleAP(id);
+  else if (id.startsWith('nd-')) handleND(id);
+  else if (id.startsWith('fc-')) handleFC(id);
+  else if (id.startsWith('mcp-')) handleMCP(id);
+  else if (id.startsWith('com-')) handleComm(id);
+  else if (id.startsWith('disp-')) handleDisp(id);
+  else if (id.startsWith('warn-')) handleWarn(id);
+
+  // toggle selected for toggle-type buttons
+  const isToggle = el.classList.contains('ap-btn') || el.classList.contains('mode-btn') || el.classList.contains('num-disp');
+  if (isToggle && !id.startsWith('mcp-')) {
+    el.classList.toggle('selected');
+  }
+
+  flashControl(el);
+}
+
+function handleAP(id) {
+  if (id==='ap-ap') { flight.apOn=!flight.apOn; updateFMA(); }
+  if (id==='ap-lnav') { toggleFMA('fma-lnav','LNAV','LNAV OFF'); }
+  if (id==='ap-vnav') { toggleFMA('fma-vnav','VNAV PTH','VNAV OFF'); }
+  if (id==='ap-alt') { toggleFMA('fma-lnav','ALT HOLD',''); }
+  if (id==='ap-ils') { updateFMA(); log('ILS mode armed'); }
+}
+function handleND(id) {
+  document.querySelectorAll('[id^=nd-]').forEach(e=>e.classList.remove('selected'));
+  document.getElementById(id).classList.add('selected');
+  log(`ND: ${id.replace('nd-','').toUpperCase()} mode`);
+}
+function handleFC(id) {
+  if (id==='fc-gear') log('GEAR ↕ toggled');
+  if (id==='fc-disc') { flight.apOn=false; document.getElementById('fma-ap').textContent='A/P OFF'; document.getElementById('fma-ap').className='fma-box'; log('⚠ A/P DISCONNECTED'); }
+  if (id==='fc-to') { log('TOGA thrust set'); }
+}
+function handleMCP(id) {
+  if (id==='mcp-spd-up') { flight.spd=Math.min(flight.spd+10,340); updateDisplays(); }
+  if (id==='mcp-spd-dn') { flight.spd=Math.max(flight.spd-10,180); updateDisplays(); }
+  if (id==='mcp-hdg-l')  { flight.hdg=(flight.hdg-5+360)%360; updateDisplays(); }
+  if (id==='mcp-hdg-r')  { flight.hdg=(flight.hdg+5)%360; updateDisplays(); }
+  if (id==='mcp-alt-up') { flight.alt=Math.min(flight.alt+1000,45000); updateDisplays(); }
+  if (id==='mcp-alt-dn') { flight.alt=Math.max(flight.alt-1000,5000); updateDisplays(); }
+  if (id==='mcp-vs-up')  { flight.vs=Math.min(flight.vs+200,3000); updateDisplays(); }
+  if (id==='mcp-vs-dn')  { flight.vs=Math.max(flight.vs-200,-3000); updateDisplays(); }
+  document.getElementById(id).classList.toggle('selected');
+  setTimeout(()=>document.getElementById(id).classList.remove('selected'),300);
+}
+function handleComm(id) {
+  const freqs={'com-vhf1':'121.925','com-vhf2':'119.100','com-hf':'6577.0'};
+  if (freqs[id]) log(`Tuning ${id.replace('com-','').toUpperCase()}: ${freqs[id]}`);
+}
+function handleDisp(id) {
+  if (id==='disp-alt') log(`ALT selected: ${flight.alt}ft`);
+  if (id==='disp-spd') log(`SPD selected: ${flight.spd}kts`);
+  if (id==='disp-hdg') log(`HDG selected: ${flight.hdg}°`);
+  if (id==='disp-vs')  log(`V/S selected: ${flight.vs > 0 ? '+':''}${flight.vs}ft/min`);
+}
+function handleWarn(id) { log(`Checked: ${id.replace('warn-','').toUpperCase()}`); }
+
+function toggleFMA(id, on, off) {
+  const el = document.getElementById(id);
+  if (el.classList.contains('active')) { el.textContent=off; el.className='fma-box'; }
+  else { el.textContent=on; el.className='fma-box active'; }
+}
+function updateFMA() {
+  document.getElementById('fma-ap').textContent = flight.apOn ? 'A/P ON' : 'A/P OFF';
+  document.getElementById('fma-ap').className = flight.apOn ? 'fma-box amber' : 'fma-box';
+}
+function updateDisplays() {
+  document.getElementById('altVal').textContent = flight.alt.toString();
+  document.getElementById('spdVal').textContent = flight.spd.toString();
+  document.getElementById('hdgVal').textContent = String(flight.hdg).padStart(3,'0');
+  document.getElementById('vsVal').textContent = (flight.vs >= 0 ? '+' : '') + String(flight.vs).padStart(3,'0');
+  document.getElementById('mcp-spd-dial').innerHTML = `SPD<br>${flight.spd}`;
+  document.getElementById('mcp-hdg-dial').innerHTML = `HDG<br>${String(flight.hdg).padStart(3,'0')}`;
+  document.getElementById('mcp-alt-dial').innerHTML = `ALT<br>${Math.floor(flight.alt/1000)}K`;
+  document.getElementById('mcp-vs-dial').innerHTML = `V/S<br>${flight.vs > 0 ? '+':''}${flight.vs}`;
+}
+
+/* ── FLASH EFFECTS ── */
+function flashControl(el) {
+  el.style.transition='box-shadow .05s';
+  el.style.boxShadow='0 0 0 2px var(--green), 0 0 30px rgba(0,230,118,.5)';
+  setTimeout(()=>{ el.style.boxShadow=''; }, 350);
+}
+function spawnSelFlash(x, y, el) {
+  const r = el.getBoundingClientRect();
+  const f = document.createElement('div');
+  f.className='sel-flash';
+  f.style.cssText=`left:${r.left+r.width/2}px;top:${r.top+r.height/2}px;width:${r.width}px;height:${r.height}px;border:2px solid var(--green);`;
+  document.body.appendChild(f);
+  setTimeout(()=>f.remove(),450);
+}
+
+/* ── GAZE LOG ── */
+const logEl = document.getElementById('gazeLog');
+function log(msg) {
+  const d = document.createElement('div');
+  d.className = 'log-entry new';
+  const t = new Date(); const ts=`${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`;
+  d.textContent = `[${ts}] ${msg}`;
+  logEl.insertBefore(d, logEl.firstChild);
+  setTimeout(()=>d.classList.remove('new'), 2000);
+  while(logEl.children.length > 12) logEl.removeChild(logEl.lastChild);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   INSTRUMENT RENDERING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/* ── PFD ── */
+function initPFD() {
+  const c = document.getElementById('pfdCanvas');
+  const wrap = c.parentElement;
+  c.width = wrap.clientWidth;
+  c.height = Math.min(wrap.clientWidth * 0.9, 280);
+  c.style.height = c.height + 'px';
+}
+function drawPFD() {
+  const c = document.getElementById('pfdCanvas');
+  const ctx = c.getContext('2d');
+  const W=c.width, H=c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const pitch = flight.pitch;
+  const roll = flight.roll;
+  const cx=W/2, cy=H/2;
+
+  // Sky / Ground
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(roll*Math.PI/180);
+  const pitchPx = pitch * (H/50);
+
+  // Sky
+  const skyG = ctx.createLinearGradient(0,-H,0,0);
+  skyG.addColorStop(0,'#001a4d'); skyG.addColorStop(1,'#003080');
+  ctx.fillStyle=skyG;
+  ctx.fillRect(-W,-H,W*2,H+pitchPx+2);
+
+  // Ground
+  const gndG = ctx.createLinearGradient(0,0,0,H);
+  gndG.addColorStop(0,'#3d2000'); gndG.addColorStop(1,'#1a0d00');
+  ctx.fillStyle=gndG;
+  ctx.fillRect(-W,pitchPx,W*2,H);
+
+  // Horizon line
+  ctx.strokeStyle='rgba(255,255,255,.8)';
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  ctx.moveTo(-W/2,pitchPx);
+  ctx.lineTo(W/2,pitchPx);
+  ctx.stroke();
+
+  // Pitch lines
+  ctx.strokeStyle='rgba(255,255,255,.5)';
+  ctx.lineWidth=1;
+  ctx.font=`${Math.floor(W*0.055)}px Courier New`;
+  ctx.fillStyle='rgba(255,255,255,.7)';
+  ctx.textAlign='center';
+  for(let p=-20;p<=20;p+=5){
+    if(p===0) continue;
+    const py=pitchPx + p*(H/50);
+    const lw = Math.abs(p)>=10 ? W*0.3 : W*0.18;
+    ctx.beginPath();
+    ctx.moveTo(-lw/2,py); ctx.lineTo(lw/2,py); ctx.stroke();
+    ctx.fillText(Math.abs(p), lw/2+6, py+3);
+    ctx.fillText(Math.abs(p), -lw/2-6, py+3);
+  }
+  ctx.restore();
+
+  // ── Fixed FPV / crosshair ──
+  ctx.strokeStyle='rgba(0,230,118,.9)';
+  ctx.lineWidth=2;
+  // wings
+  ctx.beginPath(); ctx.moveTo(cx-40,cy); ctx.lineTo(cx-16,cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx+16,cy); ctx.lineTo(cx+40,cy); ctx.stroke();
+  // center circle
+  ctx.beginPath(); ctx.arc(cx,cy,8,0,Math.PI*2);
+  ctx.strokeStyle='rgba(0,230,118,.9)'; ctx.stroke();
+  // vertical
+  ctx.beginPath(); ctx.moveTo(cx,cy-8); ctx.lineTo(cx,cy-18); ctx.stroke();
+
+  // ── Tape: Airspeed ──
+  drawTape(ctx, 0, 0, W*0.18, H, flight.spd, 'KTS', 10, 5);
+
+  // ── Tape: Altitude ──
+  drawTape(ctx, W-W*0.18, 0, W*0.18, H, flight.alt, 'FT', 1000, 500, true);
+
+  // ── VSI bar (right side thin) ──
+  const vsiX=W-4, vsiH=H*0.6, vsiY=(H-vsiH)/2;
+  ctx.fillStyle='rgba(0,0,0,.4)';
+  ctx.fillRect(vsiX-10,vsiY,10,vsiH);
+  const vsiPct=(flight.vs/4000)*0.5+0.5;
+  ctx.fillStyle=flight.vs>0?'var(--cyan)':'var(--amber)';
+  const barH=Math.abs(vsiPct-0.5)*vsiH;
+  const barY=flight.vs>0?vsiY+vsiH/2-barH:vsiY+vsiH/2;
+  ctx.fillRect(vsiX-9,barY,8,Math.max(barH,2));
+
+  // ── Heading tape (bottom) ──
+  drawHdgTape(ctx, W, H, flight.hdg);
+
+  // border
+  ctx.strokeStyle='rgba(60,140,255,.3)';
+  ctx.lineWidth=1;
+  ctx.strokeRect(.5,.5,W-1,H-1);
+}
+
+function drawTape(ctx,x,y,w,h,val,unit,step,smallStep,right=false) {
+  ctx.save();
+  ctx.rect(x,y,w,h); ctx.clip();
+  ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(x,y,w,h);
+  const pxPerUnit = h/200;
+  ctx.strokeStyle='rgba(255,255,255,.5)';
+  ctx.lineWidth=1;
+  ctx.fillStyle='rgba(255,255,255,.7)';
+  ctx.font=`${Math.max(9,w*0.2)}px Courier New`;
+  ctx.textAlign = right ? 'right' : 'left';
+  for(let v=Math.floor((val-100)/step)*step; v<val+100; v+=step){
+    const vy = h/2 - (v-val)*pxPerUnit;
+    if(vy<0||vy>h) continue;
+    const tx = right ? x+w-4 : x+4;
+    ctx.beginPath();
+    ctx.moveTo(right?x+w:x, vy);
+    ctx.lineTo(right?x+w-12:x+12, vy);
+    ctx.stroke();
+    ctx.fillText(v.toFixed(0), tx, vy+4);
+  }
+  // current value box
+  ctx.fillStyle='rgba(0,0,0,.8)';
+  ctx.fillRect(x, h/2-14, w, 28);
+  ctx.strokeStyle='rgba(0,212,255,.8)'; ctx.lineWidth=1.5;
+  ctx.strokeRect(x,h/2-14,w,28);
+  ctx.fillStyle=val===flight.alt?'var(--cyan)':'#fff';
+  ctx.font=`bold ${Math.max(11,w*0.22)}px Courier New`;
+  ctx.textAlign='center';
+  ctx.fillText(val.toFixed(0), x+w/2, h/2+5);
+  ctx.restore();
+}
+
+function drawHdgTape(ctx,W,H,hdg) {
+  const th=32, y=H-th;
+  ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,y,W,th);
+  ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=1;
+  ctx.font='9px Courier New'; ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,.6)';
+  const pxPerDeg=W/60;
+  for(let d=-30;d<=30;d+=5){
+    const h2=(hdg+d+360)%360;
+    const dx=W/2+d*pxPerDeg;
+    ctx.beginPath(); ctx.moveTo(dx,y); ctx.lineTo(dx,y+6); ctx.stroke();
+    ctx.fillText(h2.toString().padStart(3,'0'),dx,y+18);
+  }
+  // triangle
+  ctx.fillStyle='var(--cyan)';
+  ctx.beginPath(); ctx.moveTo(W/2,y); ctx.lineTo(W/2-6,y+10); ctx.lineTo(W/2+6,y+10); ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#000'; ctx.textAlign='center'; ctx.font='bold 9px Courier New';
+  ctx.fillText(hdg.toString().padStart(3,'0'), W/2, y+23);
+}
+
+/* ── ND ── */
+function initND() {
+  const c = document.getElementById('ndCanvas');
+  const wrap = c.parentElement;
+  c.width = wrap.clientWidth;
+  c.height = Math.min(wrap.clientWidth, 260);
+  c.style.height = c.height + 'px';
+}
+function drawND() {
+  const c = document.getElementById('ndCanvas');
+  const ctx = c.getContext('2d');
+  const W=c.width, H=c.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='rgba(0,5,15,.95)'; ctx.fillRect(0,0,W,H);
+
+  const cx=W/2, cy=H*0.55, r=Math.min(W,H)*0.4;
+
+  // rings
+  [r,r*0.6,r*0.3].forEach(rr=>{
+    ctx.beginPath(); ctx.arc(cx,cy,rr,0,Math.PI*2);
+    ctx.strokeStyle='rgba(60,140,255,.2)'; ctx.lineWidth=1; ctx.stroke();
+  });
+
+  // compass rose labels
+  const hdg=flight.hdg;
+  ['N','E','S','W'].forEach((l,i)=>{
+    const a=i*90-hdg; const rad=a*Math.PI/180;
+    const lx=cx+Math.sin(rad)*r*0.9, ly=cy-Math.cos(rad)*r*0.9;
+    ctx.fillStyle='rgba(255,255,255,.7)'; ctx.font=`bold 11px Courier New`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(l, lx, ly);
+  });
+  // degree ticks
+  for(let d=0;d<360;d+=5){
+    const a=(d-hdg)*Math.PI/180;
+    const inner=r*(d%30===0?0.82:0.9);
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.sin(a)*inner,cy-Math.cos(a)*inner);
+    ctx.lineTo(cx+Math.sin(a)*r,cy-Math.cos(a)*r);
+    ctx.strokeStyle=d%30===0?'rgba(255,255,255,.4)':'rgba(255,255,255,.15)';
+    ctx.lineWidth=d%30===0?1.5:0.8; ctx.stroke();
+  }
+
+  // waypoints
+  const wpts=[{name:'ROMEO',brg:35,dist:48},{name:'DELTA',brg:95,dist:120},{name:'KILO',brg:142,dist:200}];
+  wpts.forEach(w=>{
+    const a=(w.brg-hdg)*Math.PI/180;
+    const dr=Math.min(w.dist/300,0.95)*r;
+    const wx=cx+Math.sin(a)*dr, wy=cy-Math.cos(a)*dr;
+    ctx.fillStyle='var(--cyan)'; ctx.font='9px Courier New'; ctx.textAlign='left';
+    ctx.fillText(w.name, wx+5, wy-2);
+    ctx.beginPath(); ctx.arc(wx,wy,3,0,Math.PI*2); ctx.fillStyle='var(--cyan)'; ctx.fill();
+  });
+
+  // route line
+  ctx.setLineDash([4,4]);
+  ctx.strokeStyle='rgba(0,212,255,.4)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(cx,cy);
+  wpts.forEach(w=>{
+    const a=(w.brg-hdg)*Math.PI/180;
+    const dr=Math.min(w.dist/300,0.95)*r;
+    ctx.lineTo(cx+Math.sin(a)*dr, cy-Math.cos(a)*dr);
+  });
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // aircraft symbol
+  ctx.fillStyle='var(--green)';
+  ctx.beginPath(); ctx.moveTo(cx,cy-14); ctx.lineTo(cx-8,cy+4); ctx.lineTo(cx,cy-2); ctx.lineTo(cx+8,cy+4); ctx.closePath();
+  ctx.fill();
+
+  // heading line
+  ctx.strokeStyle='var(--green)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy-r*0.5); ctx.stroke();
+
+  // speed/alt readouts
+  ctx.fillStyle='var(--text)'; ctx.font='10px Courier New'; ctx.textAlign='left';
+  ctx.fillText(`GS ${flight.spd}`, 8, 16);
+  ctx.fillText(`TRK ${flight.hdg.toString().padStart(3,'0')}`, 8, 28);
+  ctx.textAlign='right';
+  ctx.fillText(`ALT ${flight.alt}`, W-8, 16);
+  ctx.fillText(`V/S ${flight.vs>0?'+':''}${flight.vs}`, W-8, 28);
+
+  ctx.strokeStyle='rgba(60,140,255,.2)'; ctx.lineWidth=1; ctx.strokeRect(.5,.5,W-1,H-1);
+}
+
+/* ── EICAS ── */
+function initEICAS() {
+  const c = document.getElementById('eicasCanvas');
+  const wrap = c.parentElement;
+  c.width = wrap.clientWidth;
+  c.height = Math.min(wrap.clientWidth*0.85, 240);
+  c.style.height = c.height + 'px';
+}
+function drawEICAS() {
+  const c = document.getElementById('eicasCanvas');
+  const ctx = c.getContext('2d');
+  const W=c.width, H=c.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='rgba(0,5,15,.9)'; ctx.fillRect(0,0,W,H);
+
+  // N1 gauges
+  const engines=[{n1:84.2,egt:612,ff:3840},{n1:83.8,egt:608,ff:3820}];
+  const gw=W*0.4, gh=W*0.4, gy=H*0.1;
+  engines.forEach((e,i)=>{
+    const gx=i===0?W*0.08:W*0.52;
+    const gcx=gx+gw/2, gcy=gy+gh/2, gr=gh*0.4;
+
+    // arc background
+    ctx.beginPath(); ctx.arc(gcx,gcy,gr,-Math.PI*1.1,Math.PI*0.1);
+    ctx.strokeStyle='rgba(60,140,255,.15)'; ctx.lineWidth=8; ctx.lineCap='round'; ctx.stroke();
+
+    // N1 arc
+    const n1pct=e.n1/100;
+    ctx.beginPath(); ctx.arc(gcx,gcy,gr,-Math.PI*1.1,-Math.PI*1.1+n1pct*Math.PI*1.2);
+    const ng=ctx.createLinearGradient(gcx-gr,gcy,gcx+gr,gcy);
+    ng.addColorStop(0,'var(--green)'); ng.addColorStop(1,'var(--cyan)');
+    ctx.strokeStyle=ng; ctx.lineWidth=8; ctx.stroke();
+
+    // needle
+    const na=-Math.PI*1.1+n1pct*Math.PI*1.2;
+    ctx.beginPath();
+    ctx.moveTo(gcx,gcy);
+    ctx.lineTo(gcx+Math.cos(na)*gr*0.8,gcy+Math.sin(na)*gr*0.8);
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+
+    ctx.fillStyle='var(--cyan)'; ctx.font=`bold ${Math.max(11,gw*0.18)}px Courier New`;
+    ctx.textAlign='center'; ctx.fillText(e.n1.toFixed(1)+'%', gcx, gcy+6);
+    ctx.fillStyle='var(--text2)'; ctx.font=`${Math.max(8,gw*0.12)}px Courier New`;
+    ctx.fillText(`ENG ${i+1}`, gcx, gcy-gr*0.55);
+    ctx.fillText(`EGT ${e.egt}°`, gcx, gcy+gr*0.55+12);
+  });
+
+  // fuel
+  ctx.fillStyle='rgba(60,140,255,.1)'; ctx.fillRect(W*0.1, H*0.7, W*0.8, H*0.22);
+  ctx.strokeStyle='rgba(60,140,255,.25)'; ctx.lineWidth=1; ctx.strokeRect(W*0.1, H*0.7, W*0.8, H*0.22);
+  ctx.fillStyle='var(--text2)'; ctx.font='9px Courier New'; ctx.textAlign='center';
+  ctx.fillText('FUEL QTY', W/2, H*0.74);
+  ctx.fillStyle='var(--amber)'; ctx.font='bold 13px Courier New';
+  ctx.fillText('14 820 KG', W/2, H*0.82);
+
+  ctx.strokeStyle='rgba(60,140,255,.2)'; ctx.lineWidth=1; ctx.strokeRect(.5,.5,W-1,H-1);
+}
+
+/* ── INIT + ANIMATE ── */
+function initAll() {
+  initPFD(); initND(); initEICAS();
+}
+function animateInstruments() {
+  // subtle instrument drift
+  flight.pitch += (Math.random()-.5)*0.02;
+  flight.pitch = Math.max(-5, Math.min(5, flight.pitch));
+  flight.roll += (Math.random()-.5)*0.05;
+  flight.roll = Math.max(-3, Math.min(3, flight.roll));
+
+  drawPFD(); drawND(); drawEICAS();
+  requestAnimationFrame(animateInstruments);
+}
+initAll();
+animateInstruments();
+updateDisplays();
+window.addEventListener('resize', ()=>{ initAll(); });
+
+log('Eye tracking calibrated');
+log('Gaze control: ACTIVE');
+log('Double-blink confirm: READY');
+</script>
+</body>
+</html>

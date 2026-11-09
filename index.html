@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tobii Eye Spark — Gaze Visualizer</title>
+  <meta name="description" content="Interactive concept demo for Tobii Eye Spark eye tracking device, showing real-time focus points, dwell heatmap, and attention analytics." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-deep:        #050810;
+      --bg-surface:     #0c1020;
+      --bg-card:        #101828;
+      --bg-card2:       #141f33;
+      --border:         rgba(99, 162, 255, 0.12);
+      --border-bright:  rgba(99, 162, 255, 0.3);
+      --accent-blue:    #3b8fff;
+      --accent-cyan:    #00d4ff;
+      --accent-purple:  #7c3aed;
+      --accent-rose:    #ff4f8b;
+      --gaze-core:      rgba(0, 212, 255, 1);
+      --gaze-mid:       rgba(59, 143, 255, 0.6);
+      --gaze-outer:     rgba(124, 58, 237, 0.2);
+      --text-primary:   #e8f0ff;
+      --text-secondary: #8097c2;
+      --text-muted:     #4a5f80;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(59,143,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(59,143,255,0.04) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .app-shell {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 100vh;
+    }
+
+    /* HEADER */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 32px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(5, 8, 16, 0.85);
+      backdrop-filter: blur(20px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(0,212,255,0.3);
+    }
+
+    .logo-icon svg { width: 20px; height: 20px; }
+    .logo-text { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+    .logo-text span { color: var(--accent-cyan); }
+    .logo-badge {
+      font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+      color: var(--text-muted); text-transform: uppercase; margin-top: 2px;
+    }
+
+    .header-controls { display: flex; align-items: center; gap: 12px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 18px; border-radius: 8px; font-size: 13px;
+      font-weight: 600; cursor: pointer; transition: all 0.2s ease;
+      border: none; font-family: 'Inter', sans-serif;
+    }
+    .btn-ghost {
+      background: transparent; color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { border-color: var(--border-bright); color: var(--text-primary); }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      color: #fff; box-shadow: 0 0 20px rgba(0,212,255,0.2);
+    }
+    .btn-primary:hover { box-shadow: 0 0 30px rgba(0,212,255,0.4); transform: translateY(-1px); }
+
+    .status-pill {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 20px;
+      background: rgba(0, 212, 255, 0.08);
+      border: 1px solid rgba(0, 212, 255, 0.2);
+      font-size: 12px; font-weight: 600; color: var(--accent-cyan);
+    }
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent-cyan);
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,212,255,0.4); }
+      50% { opacity: 0.8; box-shadow: 0 0 0 4px rgba(0,212,255,0); }
+    }
+
+    /* MAIN LAYOUT */
+    main {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 0;
+      overflow: hidden;
+      height: calc(100vh - 110px);
+    }
+
+    /* TRACKING AREA */
+    .tracking-area {
+      position: relative;
+      overflow: hidden;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      cursor: none;
+    }
+
+    .tracking-header {
+      position: absolute; top: 0; left: 0; right: 0;
+      padding: 16px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(12,16,32,0.95), transparent);
+      z-index: 10;
+    }
+    .tracking-title {
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted);
+    }
+
+    #heatmapCanvas, #gazeCanvas {
+      position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
+    }
+
+    /* Demo content */
+    .demo-content {
+      position: relative; z-index: 5;
+      padding: 64px 48px 32px;
+      pointer-events: none; user-select: none;
+    }
+    .demo-headline {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(28px, 3.5vw, 52px);
+      font-weight: 700; line-height: 1.15; letter-spacing: -1px;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, #e8f0ff 30%, var(--accent-cyan));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .demo-sub {
+      font-size: 15px; color: var(--text-secondary);
+      max-width: 480px; line-height: 1.7; margin-bottom: 32px;
+    }
+    .demo-cards {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 16px; max-width: 700px; margin-bottom: 32px;
+    }
+    .demo-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 20px;
+    }
+    .demo-card-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      margin-bottom: 12px; display: flex; align-items: center;
+      justify-content: center; font-size: 18px;
+    }
+    .demo-card-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+    .demo-card-value {
+      font-size: 22px; font-weight: 700;
+      font-family: 'Space Grotesk', sans-serif; color: var(--accent-cyan);
+    }
+    .demo-image-row { display: flex; gap: 12px; max-width: 700px; }
+    .demo-img-card {
+      flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 16px; overflow: hidden; aspect-ratio: 16/9;
+      position: relative; display: flex; align-items: center; justify-content: center;
+    }
+    .demo-img-label {
+      position: absolute; bottom: 10px; left: 12px;
+      font-size: 11px; font-weight: 600; color: var(--text-muted);
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+
+    /* GAZE CURSOR */
+    #gazeCursor {
+      position: fixed; pointer-events: none; z-index: 9999;
+      transform: translate(-50%, -50%);
+    }
+    .gaze-ring {
+      border-radius: 50%; position: absolute;
+      top: 50%; left: 50%; transform: translate(-50%, -50%);
+    }
+    .gaze-core {
+      width: 10px; height: 10px; background: var(--gaze-core);
+      box-shadow: 0 0 8px var(--gaze-core), 0 0 20px rgba(0,212,255,0.5);
+    }
+    .gaze-mid-ring {
+      width: 32px; height: 32px; border: 1.5px solid rgba(0,212,255,0.6);
+      animation: gaze-breathe 1.5s ease-in-out infinite;
+    }
+    .gaze-outer-ring {
+      width: 64px; height: 64px; border: 1px solid rgba(59,143,255,0.25);
+      animation: gaze-breathe 1.5s ease-in-out infinite 0.2s;
+    }
+    .gaze-scan-line {
+      position: absolute; top: 50%; left: 50%;
+      width: 56px; height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0,212,255,0.5), transparent);
+      transform-origin: center; animation: gaze-scan 2s linear infinite;
+      transform: translate(-50%, -50%) rotate(0deg);
+    }
+    @keyframes gaze-breathe {
+      0%, 100% { opacity: 0.8; transform: translate(-50%, -50%) scale(1); }
+      50%       { opacity: 0.4; transform: translate(-50%, -50%) scale(1.08); }
+    }
+    @keyframes gaze-scan {
+      from { transform: translate(-50%, -50%) rotate(0deg); }
+      to   { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+
+    /* Trail & dwell */
+    .dwell-flash {
+      position: fixed; pointer-events: none; z-index: 9998;
+      border-radius: 50%; transform: translate(-50%, -50%);
+      animation: dwell-pop 0.4s ease-out forwards;
+    }
+    @keyframes dwell-pop {
+      0%   { width: 20px; height: 20px; opacity: 1; background: rgba(0,212,255,0.3); }
+      100% { width: 120px; height: 120px; opacity: 0; background: rgba(0,212,255,0); }
+    }
+    .trail-dot {
+      position: fixed; pointer-events: none; z-index: 9997;
+      border-radius: 50%; transform: translate(-50%, -50%);
+      background: var(--accent-cyan); animation: trail-fade 0.6s ease-out forwards;
+    }
+    @keyframes trail-fade {
+      0%   { opacity: 0.7; width: 6px; height: 6px; }
+      100% { opacity: 0; width: 2px; height: 2px; }
+    }
+
+    /* SIDEBAR */
+    .sidebar {
+      background: var(--bg-card); overflow-y: auto;
+      padding: 20px; display: flex; flex-direction: column; gap: 16px;
+    }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .sidebar-section {
+      background: var(--bg-card2); border: 1px solid var(--border);
+      border-radius: 16px; padding: 16px;
+    }
+    .section-label {
+      font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: var(--text-muted); margin-bottom: 14px;
+    }
+
+    .metric-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 0; border-bottom: 1px solid rgba(99,162,255,0.06);
+    }
+    .metric-row:last-child { border-bottom: none; }
+    .metric-label {
+      font-size: 12px; color: var(--text-secondary);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .metric-icon {
+      width: 20px; height: 20px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center; font-size: 11px;
+    }
+    .metric-value {
+      font-size: 14px; font-weight: 700;
+      font-family: 'Space Grotesk', sans-serif; color: var(--text-primary);
+    }
+    .metric-value.cyan { color: var(--accent-cyan); }
+    .metric-value.green { color: #4ade80; }
+    .metric-value.orange { color: #fb923c; }
+
+    .mini-bar {
+      height: 4px; background: var(--border);
+      border-radius: 2px; margin-top: 6px; overflow: hidden;
+    }
+    .mini-bar-fill {
+      height: 100%; border-radius: 2px; transition: width 0.3s ease;
+    }
+
+    .attention-grid {
+      display: grid; grid-template-columns: repeat(6, 1fr);
+      gap: 3px; margin-top: 4px;
+    }
+    .attention-cell {
+      aspect-ratio: 1; border-radius: 3px;
+      background: var(--border); transition: background 0.3s ease;
+    }
+
+    .mode-toggle {
+      display: flex; background: rgba(5,8,16,0.6);
+      border-radius: 10px; padding: 3px; gap: 2px;
+    }
+    .mode-btn {
+      flex: 1; padding: 7px 10px; border-radius: 8px;
+      font-size: 11px; font-weight: 600; text-align: center;
+      cursor: pointer; transition: all 0.2s;
+      color: var(--text-muted); border: none;
+      background: transparent; font-family: 'Inter', sans-serif;
+    }
+    .mode-btn.active {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      color: #fff; box-shadow: 0 2px 12px rgba(0,212,255,0.25);
+    }
+
+    .fixation-list { display: flex; flex-direction: column; gap: 6px; }
+    .fixation-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px;
+      background: rgba(5,8,16,0.4);
+      border-radius: 8px; border: 1px solid var(--border);
+      font-size: 12px; animation: slide-in 0.3s ease;
+    }
+    @keyframes slide-in {
+      from { opacity: 0; transform: translateX(8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .fixation-num {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; flex-shrink: 0;
+    }
+    .fixation-coords { color: var(--text-secondary); flex: 1; }
+    .fixation-duration { color: var(--accent-cyan); font-weight: 600; font-family: 'Space Grotesk', sans-serif; }
+
+    .heatmap-legend {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .legend-bar {
+      flex: 1; height: 8px; border-radius: 4px;
+      background: linear-gradient(90deg,
+        rgba(0,212,255,0.3), rgba(0,255,100,0.5),
+        rgba(255,200,0,0.6), rgba(255,80,0,0.8), rgba(255,20,20,0.95)
+      );
+    }
+
+    .control-row {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 10px;
+    }
+    .control-label { font-size: 12px; color: var(--text-secondary); }
+    .toggle-switch {
+      width: 36px; height: 20px; background: var(--border);
+      border-radius: 10px; cursor: pointer; position: relative; transition: background 0.2s;
+    }
+    .toggle-switch.on { background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan)); }
+    .toggle-thumb {
+      position: absolute; width: 14px; height: 14px;
+      background: #fff; border-radius: 50%;
+      top: 3px; left: 3px; transition: left 0.2s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    .toggle-switch.on .toggle-thumb { left: 19px; }
+
+    /* FOOTER */
+    footer {
+      padding: 12px 32px; border-top: 1px solid var(--border);
+      background: rgba(5,8,16,0.85);
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 11px; color: var(--text-muted);
+    }
+    .footer-hint { display: flex; align-items: center; gap: 8px; }
+    .footer-hint .key {
+      padding: 2px 8px; background: var(--bg-card);
+      border: 1px solid var(--border); border-radius: 4px;
+      font-family: monospace; font-size: 11px; color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <div id="gazeCursor">
+    <div class="gaze-ring gaze-outer-ring"></div>
+    <div class="gaze-ring gaze-mid-ring"></div>
+    <div class="gaze-ring gaze-core"></div>
+    <div class="gaze-scan-line"></div>
+  </div>
+
+  <div class="app-shell">
+    <header>
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+            <ellipse cx="12" cy="12" rx="10" ry="6" />
+            <circle cx="12" cy="12" r="3" fill="white" stroke="none" />
+            <circle cx="12" cy="12" r="1.2" fill="#050810" stroke="none" />
+          </svg>
+        </div>
+        <div>
+          <div class="logo-text">Tobii <span>Eye Spark</span></div>
+          <div class="logo-badge">Gaze Visualizer</div>
+        </div>
+      </div>
+      <div class="header-controls">
+        <div class="status-pill">
+          <div class="status-dot"></div>
+          Tracking Active
+        </div>
+        <button class="btn btn-ghost" id="clearBtn">Clear Heatmap</button>
+        <button class="btn btn-primary" id="toggleTrackingBtn">⏸ Pause</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- TRACKING CANVAS -->
+      <div class="tracking-area" id="trackingArea">
+        <canvas id="heatmapCanvas"></canvas>
+        <canvas id="gazeCanvas"></canvas>
+        <div class="tracking-header">
+          <div class="tracking-title">📡 Live Tracking Canvas — Move your cursor to simulate gaze</div>
+          <div style="font-size:11px; color:var(--text-muted);">Mouse = Eye position</div>
+        </div>
+
+        <div class="demo-content">
+          <div class="demo-headline">See the World<br />Through Your Eyes</div>
+          <div class="demo-sub">
+            Tobii Eye Spark tracks where you look with sub-millisecond precision.
+            Move your cursor to simulate real-time gaze tracking — every glance is
+            captured, every focus point visualized.
+          </div>
+          <div class="demo-cards">
+            <div class="demo-card">
+              <div class="demo-card-icon" style="background:rgba(0,212,255,0.1); color:var(--accent-cyan);">👁</div>
+              <div class="demo-card-title">Fixations</div>
+              <div class="demo-card-value" id="fixationCount">0</div>
+            </div>
+            <div class="demo-card">
+              <div class="demo-card-icon" style="background:rgba(59,143,255,0.1); color:var(--accent-blue);">⚡</div>
+              <div class="demo-card-title">Saccades</div>
+              <div class="demo-card-value" id="saccadeCount">0</div>
+            </div>
+            <div class="demo-card">
+              <div class="demo-card-icon" style="background:rgba(124,58,237,0.1); color:var(--accent-purple);">🎯</div>
+              <div class="demo-card-title">Coverage</div>
+              <div class="demo-card-value" id="coverageVal">0%</div>
+            </div>
+          </div>
+          <div class="demo-image-row">
+            <div class="demo-img-card">
+              <div style="width:100%;height:100%;background:linear-gradient(135deg,rgba(59,143,255,0.15),rgba(0,212,255,0.08));display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;">
+                <div style="font-size:32px;">🖥</div>
+                <div style="font-size:12px;color:var(--text-muted);">Screen Content A</div>
+              </div>
+              <div class="demo-img-label">Zone A</div>
+            </div>
+            <div class="demo-img-card">
+              <div style="width:100%;height:100%;background:linear-gradient(135deg,rgba(124,58,237,0.15),rgba(255,79,139,0.08));display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;">
+                <div style="font-size:32px;">📊</div>
+                <div style="font-size:12px;color:var(--text-muted);">Screen Content B</div>
+              </div>
+              <div class="demo-img-label">Zone B</div>
+            </div>
+            <div class="demo-img-card">
+              <div style="width:100%;height:100%;background:linear-gradient(135deg,rgba(0,255,100,0.1),rgba(0,212,255,0.06));display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;">
+                <div style="font-size:32px;">🎮</div>
+                <div style="font-size:12px;color:var(--text-muted);">Screen Content C</div>
+              </div>
+              <div class="demo-img-label">Zone C</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="sidebar-section">
+          <div class="section-label">Visualization Mode</div>
+          <div class="mode-toggle">
+            <button class="mode-btn active" id="modeHeatmap" onclick="setMode('heatmap')">Heatmap</button>
+            <button class="mode-btn" id="modeScanpath" onclick="setMode('scanpath')">Scanpath</button>
+            <button class="mode-btn" id="modeGaze" onclick="setMode('gaze')">Gaze Only</button>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-label">Live Metrics</div>
+          <div class="metric-row">
+            <div class="metric-label">
+              <div class="metric-icon" style="background:rgba(0,212,255,0.1);">👁</div> Gaze X
+            </div>
+            <div class="metric-value cyan" id="gazeX">—</div>
+          </div>
+          <div class="mini-bar"><div class="mini-bar-fill" id="gazeXBar" style="width:0%;background:var(--accent-cyan);"></div></div>
+
+          <div class="metric-row" style="margin-top:8px;">
+            <div class="metric-label">
+              <div class="metric-icon" style="background:rgba(59,143,255,0.1);">🎯</div> Gaze Y
+            </div>
+            <div class="metric-value cyan" id="gazeY">—</div>
+          </div>
+          <div class="mini-bar"><div class="mini-bar-fill" id="gazeYBar" style="width:0%;background:var(--accent-blue);"></div></div>
+
+          <div class="metric-row" style="margin-top:8px;">
+            <div class="metric-label">
+              <div class="metric-icon" style="background:rgba(74,222,128,0.1);">⚡</div> Velocity
+            </div>
+            <div class="metric-value green" id="velocityVal">0 px/s</div>
+          </div>
+          <div class="metric-row">
+            <div class="metric-label">
+              <div class="metric-icon" style="background:rgba(251,146,60,0.1);">⏱</div> Dwell
+            </div>
+            <div class="metric-value orange" id="dwellVal">0 ms</div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-label">Attention Grid</div>
+          <div class="attention-grid" id="attentionGrid"></div>
+          <div style="margin-top:10px;" class="heatmap-legend">
+            <span>Low</span>
+            <div class="legend-bar"></div>
+            <span>High</span>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-label">Settings</div>
+          <div class="control-row">
+            <div class="control-label">Show trail</div>
+            <div class="toggle-switch on" id="trailToggle" onclick="toggleSetting('trail')"><div class="toggle-thumb"></div></div>
+          </div>
+          <div class="control-row">
+            <div class="control-label">Dwell flash</div>
+            <div class="toggle-switch on" id="dwellToggle" onclick="toggleSetting('dwell')"><div class="toggle-thumb"></div></div>
+          </div>
+          <div class="control-row">
+            <div class="control-label">Heatmap decay</div>
+            <div class="toggle-switch on" id="decayToggle" onclick="toggleSetting('decay')"><div class="toggle-thumb"></div></div>
+          </div>
+          <div class="control-row" style="margin-bottom:0;">
+            <div class="control-label">Gaze cursor</div>
+            <div class="toggle-switch on" id="cursorToggle" onclick="toggleSetting('cursor')"><div class="toggle-thumb"></div></div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-label">Fixation Log</div>
+          <div class="fixation-list" id="fixationList">
+            <div class="no-data" style="font-size:12px;color:var(--text-muted);text-align:center;padding:12px 0;">
+              Move cursor to start tracking…
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <div class="footer-hint">
+        <span class="key">Move</span> cursor to simulate eye gaze
+        <span style="margin:0 4px;">·</span>
+        <span class="key">Stay still</span> to register fixation
+        <span style="margin:0 4px;">·</span>
+        <span class="key">C</span> to clear heatmap
+      </div>
+      <div>Tobii Eye Spark — Concept Demo © 2026</div>
+    </footer>
+  </div>
+
+  <script>
+    const state = {
+      gazeX: 0, gazeY: 0, prevX: 0, prevY: 0,
+      tracking: true, mode: 'heatmap',
+      fixationCount: 0, saccadeCount: 0,
+      dwellThreshold: 300, stillRadius: 20,
+      fixations: [], scanpathPoints: [],
+      settings: { trail: true, dwell: true, decay: true, cursor: true },
+      lastMoveTime: Date.now(), isFixed: false,
+    };
+
+    const area       = document.getElementById('trackingArea');
+    const hCanvas    = document.getElementById('heatmapCanvas');
+    const gCanvas    = document.getElementById('gazeCanvas');
+    const hCtx       = hCanvas.getContext('2d');
+    const gCtx       = gCanvas.getContext('2d');
+
+    function resizeCanvases() {
+      const r = area.getBoundingClientRect();
+      hCanvas.width = gCanvas.width = r.width;
+      hCanvas.height = gCanvas.height = r.height;
+    }
+    window.addEventListener('resize', () => { resizeCanvases(); buildAttentionGrid(); });
+    resizeCanvases();
+
+    // ── HEAT MAP ──
+    const CELL = 16;
+    let heat = {};
+
+    function addHeat(px, py) {
+      const r = area.getBoundingClientRect();
+      const lx = px - r.left, ly = py - r.top;
+      if (lx < 0 || ly < 0 || lx > r.width || ly > r.height) return;
+      const col = Math.floor(lx / CELL), row = Math.floor(ly / CELL);
+      const spread = 5;
+      for (let dc = -spread; dc <= spread; dc++) {
+        for (let dr = -spread; dr <= spread; dr++) {
+          const dist = Math.sqrt(dc*dc + dr*dr);
+          if (dist > spread) continue;
+          const k = `${col+dc},${row+dr}`;
+          heat[k] = (heat[k] || 0) + (1 - dist / spread) * 0.18;
+        }
+      }
+    }
+
+    function heatColor(t) {
+      const stops = [
+        [0,   [0,   212, 255]],
+        [0.25,[0,   255, 100]],
+        [0.5, [255, 230, 0  ]],
+        [0.75,[255, 120, 0  ]],
+        [1,   [255, 20,  20 ]],
+      ];
+      let lo = stops[0], hi = stops[stops.length-1];
+      for (let i = 0; i < stops.length - 1; i++) {
+        if (t >= stops[i][0] && t <= stops[i+1][0]) { lo = stops[i]; hi = stops[i+1]; break; }
+      }
+      const s = (t - lo[0]) / ((hi[0] - lo[0]) || 1);
+      const c = lo[1].map((v, i) => Math.round(v + (hi[1][i] - v) * s));
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    }
+
+    function drawHeatmap() {
+      hCtx.clearRect(0, 0, hCanvas.width, hCanvas.height);
+      if (state.mode === 'gaze') return;
+      const maxVal = Math.max(...Object.values(heat), 1);
+      for (const [k, v] of Object.entries(heat)) {
+        const [c, r] = k.split(',').map(Number);
+        const norm = Math.min(v / maxVal, 1);
+        const cx = c * CELL + CELL / 2, cy = r * CELL + CELL / 2;
+        const rad = CELL * 2.5;
+        const g = hCtx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+        const base = heatColor(norm);
+        const rgba = base.replace('rgb(', 'rgba(').replace(')', `,${norm * 0.85})`);
+        g.addColorStop(0, rgba);
+        g.addColorStop(1, 'transparent');
+        hCtx.fillStyle = g;
+        hCtx.fillRect(cx - rad, cy - rad, rad * 2, rad * 2);
+      }
+    }
+
+    // ── SCANPATH ──
+    function drawScanpath() {
+      if (state.mode !== 'scanpath') return;
+      const r = area.getBoundingClientRect();
+      gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+      const pts = state.scanpathPoints;
+      if (pts.length < 2) return;
+
+      gCtx.beginPath();
+      gCtx.strokeStyle = 'rgba(59,143,255,0.3)';
+      gCtx.lineWidth = 1.5;
+      gCtx.setLineDash([4, 4]);
+      pts.forEach((p, i) => {
+        const lx = p.x - r.left, ly = p.y - r.top;
+        i === 0 ? gCtx.moveTo(lx, ly) : gCtx.lineTo(lx, ly);
+      });
+      gCtx.stroke();
+      gCtx.setLineDash([]);
+
+      state.fixations.slice(-20).forEach((f, i) => {
+        const lx = f.x - r.left, ly = f.y - r.top;
+        const radius = Math.min(6 + f.duration / 40, 24);
+        gCtx.beginPath();
+        gCtx.arc(lx, ly, radius, 0, Math.PI * 2);
+        gCtx.fillStyle = `rgba(0,212,255,${0.15 + i * 0.035})`;
+        gCtx.fill();
+        gCtx.strokeStyle = `rgba(0,212,255,${0.4 + i * 0.025})`;
+        gCtx.lineWidth = 1.5;
+        gCtx.stroke();
+        gCtx.fillStyle = '#fff';
+        gCtx.font = 'bold 9px Inter';
+        gCtx.textAlign = 'center';
+        gCtx.textBaseline = 'middle';
+        const idx = Math.max(0, state.fixations.length - 20) + i + 1;
+        gCtx.fillText(idx, lx, ly);
+      });
+    }
+
+    // ── MOUSE HANDLER ──
+    let lastTime = Date.now();
+
+    document.addEventListener('mousemove', (e) => {
+      if (!state.tracking) return;
+      const now = Date.now();
+      const dt = now - lastTime || 1;
+      const vx = (e.clientX - state.gazeX) / dt * 1000;
+      const vy = (e.clientY - state.gazeY) / dt * 1000;
+      const speed = Math.sqrt(vx*vx + vy*vy);
+
+      state.prevX = state.gazeX; state.prevY = state.gazeY;
+      state.gazeX = e.clientX;  state.gazeY = e.clientY;
+      lastTime = now; state.lastMoveTime = now;
+
+      const cur = document.getElementById('gazeCursor');
+      cur.style.left = e.clientX + 'px';
+      cur.style.top  = e.clientY + 'px';
+
+      document.getElementById('gazeX').textContent = e.clientX + 'px';
+      document.getElementById('gazeY').textContent = e.clientY + 'px';
+      document.getElementById('velocityVal').textContent = Math.round(speed) + ' px/s';
+      document.getElementById('gazeXBar').style.width = (e.clientX / window.innerWidth * 100) + '%';
+      document.getElementById('gazeYBar').style.width = (e.clientY / window.innerHeight * 100) + '%';
+
+      addHeat(e.clientX, e.clientY);
+      state.scanpathPoints.push({ x: e.clientX, y: e.clientY });
+      if (state.scanpathPoints.length > 300) state.scanpathPoints.shift();
+
+      if (speed > 300) {
+        state.saccadeCount++;
+        document.getElementById('saccadeCount').textContent = state.saccadeCount;
+        state.isFixed = false;
+      }
+
+      if (state.settings.trail && speed < 800) spawnTrailDot(e.clientX, e.clientY);
+    });
+
+    // ── FIXATION ──
+    setInterval(() => {
+      if (!state.tracking) return;
+      const now = Date.now();
+      const still = (now - state.lastMoveTime) > state.dwellThreshold;
+      if (still) {
+        const dwell = now - state.lastMoveTime;
+        document.getElementById('dwellVal').textContent = dwell + ' ms';
+        if (!state.isFixed) {
+          state.isFixed = true;
+          state.fixationCount++;
+          document.getElementById('fixationCount').textContent = state.fixationCount;
+          updateCoverage();
+          const f = { x: state.gazeX, y: state.gazeY, duration: dwell, id: state.fixationCount };
+          state.fixations.push(f);
+          addFixationLog(f);
+          if (state.settings.dwell) spawnDwellFlash(state.gazeX, state.gazeY);
+        }
+      } else {
+        document.getElementById('dwellVal').textContent = '0 ms';
+      }
+    }, 50);
+
+    // ── DECAY ──
+    setInterval(() => {
+      if (!state.settings.decay) return;
+      for (const k of Object.keys(heat)) {
+        heat[k] *= 0.997;
+        if (heat[k] < 0.01) delete heat[k];
+      }
+    }, 100);
+
+    // ── RENDER ──
+    function renderLoop() {
+      drawHeatmap();
+      if (state.mode === 'scanpath') drawScanpath();
+      else if (state.mode !== 'scanpath') gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+      updateAttentionGrid();
+      requestAnimationFrame(renderLoop);
+    }
+    requestAnimationFrame(renderLoop);
+
+    // ── TRAIL & FLASH ──
+    function spawnTrailDot(x, y) {
+      const d = document.createElement('div');
+      d.className = 'trail-dot';
+      d.style.left = x + 'px'; d.style.top = y + 'px';
+      d.style.width = '6px'; d.style.height = '6px';
+      document.body.appendChild(d);
+      setTimeout(() => d.remove(), 600);
+    }
+    function spawnDwellFlash(x, y) {
+      const d = document.createElement('div');
+      d.className = 'dwell-flash';
+      d.style.left = x + 'px'; d.style.top = y + 'px';
+      document.body.appendChild(d);
+      setTimeout(() => d.remove(), 400);
+    }
+
+    // ── FIXATION LOG ──
+    function addFixationLog(f) {
+      const list = document.getElementById('fixationList');
+      const noData = list.querySelector('.no-data');
+      if (noData) noData.remove();
+      const item = document.createElement('div');
+      item.className = 'fixation-item';
+      item.innerHTML = `
+        <div class="fixation-num">${f.id}</div>
+        <div class="fixation-coords">${f.x}, ${f.y}</div>
+        <div class="fixation-duration">${f.duration}ms</div>
+      `;
+      list.insertBefore(item, list.firstChild);
+      while (list.children.length > 8) list.removeChild(list.lastChild);
+    }
+
+    // ── ATTENTION GRID ──
+    const GRID_COLS = 6, GRID_ROWS = 4;
+    let attentionCells = [];
+
+    function buildAttentionGrid() {
+      const g = document.getElementById('attentionGrid');
+      g.innerHTML = ''; attentionCells = [];
+      g.style.gridTemplateColumns = `repeat(${GRID_COLS}, 1fr)`;
+      for (let i = 0; i < GRID_COLS * GRID_ROWS; i++) {
+        const c = document.createElement('div');
+        c.className = 'attention-cell';
+        g.appendChild(c); attentionCells.push(c);
+      }
+    }
+    buildAttentionGrid();
+
+    function updateAttentionGrid() {
+      const r = area.getBoundingClientRect();
+      const cellW = r.width / GRID_COLS, cellH = r.height / GRID_ROWS;
+      const grid = new Array(GRID_COLS * GRID_ROWS).fill(0);
+      for (const [k, v] of Object.entries(heat)) {
+        const [c, row] = k.split(',').map(Number);
+        const gc = Math.floor((c * CELL) / cellW), gr = Math.floor((row * CELL) / cellH);
+        if (gc >= 0 && gc < GRID_COLS && gr >= 0 && gr < GRID_ROWS)
+          grid[gr * GRID_COLS + gc] += v;
+      }
+      const mx = Math.max(...grid, 1);
+      grid.forEach((v, i) => {
+        const norm = Math.min(v / mx, 1);
+        attentionCells[i].style.background = norm < 0.05
+          ? 'var(--border)'
+          : heatColor(norm).replace('rgb(', 'rgba(').replace(')', `,${0.3 + norm * 0.7})`);
+      });
+    }
+
+    // ── COVERAGE ──
+    function updateCoverage() {
+      const total = (hCanvas.width / CELL) * (hCanvas.height / CELL);
+      const pct = Math.min(Math.round(Object.keys(heat).length / total * 100), 100);
+      document.getElementById('coverageVal').textContent = pct + '%';
+    }
+
+    // ── MODE ──
+    function setMode(mode) {
+      state.mode = mode;
+      ['modeHeatmap','modeScanpath','modeGaze'].forEach(id => document.getElementById(id).classList.remove('active'));
+      document.getElementById('mode' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+      gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+    }
+
+    // ── TOGGLE SETTINGS ──
+    function toggleSetting(key) {
+      state.settings[key] = !state.settings[key];
+      document.getElementById(key + 'Toggle').classList.toggle('on', state.settings[key]);
+      if (key === 'cursor') {
+        document.getElementById('gazeCursor').style.display = state.settings.cursor ? 'block' : 'none';
+      }
+    }
+
+    // ── CLEAR ──
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      heat = {};
+      state.fixations = []; state.fixationCount = 0;
+      state.saccadeCount = 0; state.scanpathPoints = [];
+      document.getElementById('fixationCount').textContent = '0';
+      document.getElementById('saccadeCount').textContent = '0';
+      document.getElementById('coverageVal').textContent = '0%';
+      document.getElementById('fixationList').innerHTML =
+        '<div class="no-data" style="font-size:12px;color:var(--text-muted);text-align:center;padding:12px 0;">Move cursor to start tracking…</div>';
+      hCtx.clearRect(0, 0, hCanvas.width, hCanvas.height);
+      gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+    });
+
+    // ── PAUSE/RESUME ──
+    document.getElementById('toggleTrackingBtn').addEventListener('click', function() {
+      state.tracking = !state.tracking;
+      this.textContent = state.tracking ? '⏸ Pause' : '▶ Resume';
+      this.style.background = state.tracking
+        ? 'linear-gradient(135deg, var(--accent-blue), var(--accent-cyan))'
+        : 'linear-gradient(135deg, #4a5f80, #8097c2)';
+    });
+
+    // ── KEYBOARD ──
+    document.addEventListener('keydown', e => {
+      if (e.key === 'c' || e.key === 'C') document.getElementById('clearBtn').click();
+      if (e.key === ' ') document.getElementById('toggleTrackingBtn').click();
+    });
+
+    area.addEventListener('mouseleave', () => { document.getElementById('gazeCursor').style.opacity = '0.3'; });
+    area.addEventListener('mouseenter', () => { document.getElementById('gazeCursor').style.opacity = '1'; });
+  </script>
+</body>
+</html>
